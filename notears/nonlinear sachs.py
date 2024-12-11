@@ -220,17 +220,17 @@ def main():
 
     n, d, s0, graph_type, sem_type = 5000, 10, 15, 'ER', 'mim'
     B_true = ut.simulate_dag(d, s0, graph_type)
-    np.savetxt('W_true.csv', B_true, delimiter=',')
+    np.savetxt('W_sachs_true.csv', B_true, delimiter=',')
 
     X = ut.simulate_nonlinear_sem(B_true, n, sem_type)
-    np.savetxt('X_true.csv', X, delimiter=',')
+    np.savetxt('X_sachs_true.csv', X, delimiter=',')
     p_miss = 0.1
     df = pd.DataFrame(X)
     df_true = copy.copy(df)
     df_mask = pd.DataFrame(np.random.choice([0,1],df.shape,p=[p_miss,1-p_miss]),columns=df.columns)
     df[df_mask.iloc[:,:] == 0] = np.nan
     X=df.values
-    np.savetxt('X.csv', X, delimiter=',')
+    np.savetxt('X_sachs.csv', X, delimiter=',')
 
     R = (~np.isnan(X)).astype(float)
     X=np.nan_to_num(X)
@@ -242,7 +242,7 @@ def main():
     W_est = notears_nonlinear(model, X, lambda1=0.01, lambda2=0.01)
     print(W_est)
     assert ut.is_dag(W_est)
-    np.savetxt('W_est.csv', W_est, delimiter=',')
+    np.savetxt('W_sachs_est.csv', W_est, delimiter=',')
     acc = ut.count_accuracy(B_true, W_est != 0)
     print(acc)
 
