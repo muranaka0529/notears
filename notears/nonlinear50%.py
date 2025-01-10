@@ -7,6 +7,7 @@ import numpy as np
 import math
 import pandas as pd
 import copy
+import networkx as nx
 
 class NotearsMLP(nn.Module):
     def __init__(self, dims, bias=True):
@@ -216,21 +217,25 @@ def main():
     np.set_printoptions(precision=3)
 
     import utils as ut
-    ut.set_random_seed(127)
+    ut.set_random_seed(128) #126#127#128
 
-    n, d, s0, graph_type, sem_type = 5000, 10, 15, 'ER', 'mim'
-    B_true = ut.simulate_dag(d, s0, graph_type)
-    np.savetxt('W_true.csv', B_true, delimiter=',')
+    n, d, degree= 5000,30,2
+    B_true = ut.simulate_random_dag(d,degree)
+    G=nx.DiGraph(B_true)
+    W= (B_true != 0).astype(int)
+    
+    np.savetxt('W_true50%.csv', W, delimiter=',')
 
-    X = ut.simulate_nonlinear_sem(B_true, n, sem_type)
-    np.savetxt('X_true.csv', X, delimiter=',')
-    p_miss = 0.1
+    X=ut.simulate_sem(G,n,1,'linear-gauss','nonlinear_2')
+    X=np.squeeze(X)
+    np.savetxt('X_true50%.csv', X, delimiter=',')
+    p_miss = 0.5
     df = pd.DataFrame(X)
     df_true = copy.copy(df)
     df_mask = pd.DataFrame(np.random.choice([0,1],df.shape,p=[p_miss,1-p_miss]),columns=df.columns)
     df[df_mask.iloc[:,:] == 0] = np.nan
     X=df.values
-    np.savetxt('X.csv', X, delimiter=',')
+    np.savetxt('X50%.csv', X, delimiter=',')
 
     R = (~np.isnan(X)).astype(float)
     X=np.nan_to_num(X)
@@ -239,10 +244,10 @@ def main():
     X=R*X+(1-R)*X_mean
 
     model = NotearsMLP(dims=[d, 10, 1], bias=True)
-    W_est = notears_nonlinear(model, X, lambda1=0.01, lambda2=0.01)
+    W_est = notears_nonlinear(model, X, lambda1=0.12, lambda2=0.12)
     print(W_est)
     assert ut.is_dag(W_est)
-    np.savetxt('W_est.csv', W_est, delimiter=',')
+    np.savetxt('W_est50%.csv', W_est, delimiter=',')
     acc = ut.count_accuracy(B_true, W_est != 0)
     print(acc)
 

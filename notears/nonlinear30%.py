@@ -7,16 +7,8 @@ import numpy as np
 import math
 import pandas as pd
 import copy
-from cdt.data import load_dataset
 import networkx as nx
-from sklearn.preprocessing import StandardScaler
-import matplotlib.pyplot as plt
-s_data, s_graph = load_dataset('sachs')
-G_s = nx.DiGraph(s_graph)
-W_s = nx.to_numpy_array(G_s)
-s_data=s_data.reindex(columns=['PIP2', 'PKC', 'plcg', 'PIP3', 'pjnk', 'P38', 'PKA', 'praf', 'pmek', 'p44/42', 'pakts473'])
-d = s_data.shape[1]
-print(d)
+
 class NotearsMLP(nn.Module):
     def __init__(self, dims, bias=True):
         super(NotearsMLP, self).__init__()
@@ -172,15 +164,14 @@ def squared_loss(output, target):
     loss = 0.5 / n * torch.sum((output - target) ** 2)
     return loss
 
+
 def dual_ascent_step(model, X, lambda1, lambda2, rho, alpha, h, rho_max):
     """Perform one step of dual ascent in augmented Lagrangian."""
     h_new = None
     optimizer = LBFGSBScipy(model.parameters())
     X_torch = torch.from_numpy(X)
-
     while rho < rho_max:
         print(f"Starting iteration with rho={rho}, h={h:.6f}")
-
         def closure():
             optimizer.zero_grad()
             X_hat = model(X_torch)
@@ -190,31 +181,17 @@ def dual_ascent_step(model, X, lambda1, lambda2, rho, alpha, h, rho_max):
             l2_reg = 0.5 * lambda2 * model.l2_reg()
             l1_reg = lambda1 * model.fc1_l1_reg()
             primal_obj = loss + penalty + l2_reg + l1_reg
-            
-            # ログ出力: 各項の値を確認
-            print(f"Loss={loss.item():.6f}, h_val={h_val.item():.6f}, "
-                  f"Penalty={penalty.item():.6f}, Primal_obj={primal_obj.item():.6f}")
-            
             primal_obj.backward()
             return primal_obj
-
         optimizer.step(closure)  # NOTE: updates model in-place
-
         with torch.no_grad():
             h_new = model.h_func().item()
-            print(f"Updated h_new={h_new:.6f}")
-
         if h_new > 0.25 * h:
             rho *= 10
-            print(f"Increasing rho to {rho:.6f}")
         else:
-            print("Convergence criteria met, breaking loop.")
             break
-
     alpha += rho * h_new
-    print(f"Updated alpha={alpha:.6f}, Final h_new={h_new:.6f}")
     return rho, alpha, h_new
-
 
 
 def notears_nonlinear(model: nn.Module,
@@ -223,7 +200,7 @@ def notears_nonlinear(model: nn.Module,
                       lambda2: float = 0.,
                       max_iter: int = 100,
                       h_tol: float = 1e-8,
-                      rho_max: float = 1e+16, #1e+16,
+                      rho_max: float = 1e+16,
                       w_threshold: float = 0.3):
     rho, alpha, h = 1.0, 0.0, np.inf
     for _ in range(max_iter):
@@ -241,20 +218,26 @@ def main():
     np.set_printoptions(precision=3)
 
     import utils as ut
-    ut.set_random_seed(120)
+    ut.set_random_seed(128) #126#127#128
 
-    np.savetxt('W_sachs_true.csv', W_s, delimiter=',')
-
-    np.savetxt('X_sachs_true.csv', s_data, delimiter=',')
-    p_miss = 0.1
+    n, d, degree= 5000,30,2
+    B_true = ut.simulate_random_dag(d,degree)
+    G=nx.DiGraph(B_true)
+    W= (B_true != 0).astype(int)
     
-    df = pd.DataFrame(s_data)
+    np.savetxt('W_true30%.csv', W, delimiter=',')
+
+    X=ut.simulate_sem(G,n,1,'linear-gauss','nonlinear_2')
+    X=np.squeeze(X)
+    np.savetxt('X_true30%.csv', X, delimiter=',')
+    p_miss = 0.3
+    df = pd.DataFrame(X)
+    df_true = copy.copy(df)
     df_mask = pd.DataFrame(np.random.choice([0,1],df.shape,p=[p_miss,1-p_miss]),columns=df.columns)
     df[df_mask.iloc[:,:] == 0] = np.nan
     X=df.values
-    np.savetxt('X_sachs.csv', X, delimiter=',')
-    scaler = StandardScaler()
-    X = scaler.fit_transform(X)
+    np.savetxt('X30%.csv', X, delimiter=',')
+
     R = (~np.isnan(X)).astype(float)
     X=np.nan_to_num(X)
     
@@ -262,29 +245,12 @@ def main():
     X=R*X+(1-R)*X_mean
 
     model = NotearsMLP(dims=[d, 10, 1], bias=True)
-    W_est = notears_nonlinear(model, X, lambda1=0.01, lambda2=0.01)
+    W_est = notears_nonlinear(model, X, lambda1=0.12, lambda2=0.12)
     print(W_est)
     assert ut.is_dag(W_est)
-    np.savetxt('W_sachs_est.csv', W_est, delimiter=',')
-    acc = ut.count_accuracy(W_s, W_est != 0)
+    np.savetxt('W_est30%.csv', W_est, delimiter=',')
+    acc = ut.count_accuracy(B_true, W_est != 0)
     print(acc)
-    G = nx.DiGraph(W_est)
-    node_name = ['PIP2', 'PKC', 'plcg', 'PIP3', 'pjnk', 'P38', 'PKA', 'praf', 'pmek', 'p44/42', 'pakts473']
-    mapping = {i: name for i, name in enumerate(node_name)}
-    G = nx.relabel_nodes(G, mapping)
-    pos = nx.spring_layout(G_s,k=5,seed=42) 
-    plt.figure(figsize=(12, 6))
-    plt.subplot(121)  # 1行2列の1番目
-    nx.draw(G_s, pos, with_labels=True, node_size=700, node_color='lightblue', font_size=10)
-    plt.title("True Graph")
-
-    # 推定したグラフを描画（同じ位置を使用）
-    plt.subplot(122)  # 1行2列の2番目
-    nx.draw(G, pos, with_labels=True, node_size=700, node_color='lightblue', font_size=10)
-    plt.title("Estimated Graph")
-
-    # 表示
-    plt.show()
 
 
 if __name__ == '__main__':
